@@ -39,6 +39,9 @@ type Group func(*sql.Selector)
 // GroupInvitationToken is the predicate function for groupinvitationtoken builders.
 type GroupInvitationToken func(*sql.Selector)
 
+// LocationHistory is the predicate function for locationhistory builders.
+type LocationHistory func(*sql.Selector)
+
 // MaintenanceEntry is the predicate function for maintenanceentry builders.
 type MaintenanceEntry func(*sql.Selector)
 

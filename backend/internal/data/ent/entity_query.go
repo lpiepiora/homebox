@@ -18,6 +18,7 @@ import (
 	"github.com/sysadminsmedia/homebox/backend/internal/data/ent/entityfield"
 	"github.com/sysadminsmedia/homebox/backend/internal/data/ent/entitytype"
 	"github.com/sysadminsmedia/homebox/backend/internal/data/ent/group"
+	"github.com/sysadminsmedia/homebox/backend/internal/data/ent/locationhistory"
 	"github.com/sysadminsmedia/homebox/backend/internal/data/ent/maintenanceentry"
 	"github.com/sysadminsmedia/homebox/backend/internal/data/ent/predicate"
 	"github.com/sysadminsmedia/homebox/backend/internal/data/ent/tag"
@@ -38,6 +39,7 @@ type EntityQuery struct {
 	withFields             *EntityFieldQuery
 	withMaintenanceEntries *MaintenanceEntryQuery
 	withAttachments        *AttachmentQuery
+	withLocationHistory    *LocationHistoryQuery
 	withFKs                bool
 	// intermediate query (i.e. traversal path).
 	sql  *sql.Selector
@@ -251,6 +253,28 @@ func (_q *EntityQuery) QueryAttachments() *AttachmentQuery {
 	return query
 }
 
+// QueryLocationHistory chains the current query on the "location_history" edge.
+func (_q *EntityQuery) QueryLocationHistory() *LocationHistoryQuery {
+	query := (&LocationHistoryClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(entity.Table, entity.FieldID, selector),
+			sqlgraph.To(locationhistory.Table, locationhistory.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, entity.LocationHistoryTable, entity.LocationHistoryColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
 // First returns the first Entity entity from the query.
 // Returns a *NotFoundError when no Entity was found.
 func (_q *EntityQuery) First(ctx context.Context) (*Entity, error) {
@@ -451,6 +475,7 @@ func (_q *EntityQuery) Clone() *EntityQuery {
 		withFields:             _q.withFields.Clone(),
 		withMaintenanceEntries: _q.withMaintenanceEntries.Clone(),
 		withAttachments:        _q.withAttachments.Clone(),
+		withLocationHistory:    _q.withLocationHistory.Clone(),
 		// clone intermediate query.
 		sql:  _q.sql.Clone(),
 		path: _q.path,
@@ -545,6 +570,17 @@ func (_q *EntityQuery) WithAttachments(opts ...func(*AttachmentQuery)) *EntityQu
 	return _q
 }
 
+// WithLocationHistory tells the query-builder to eager-load the nodes that are connected to
+// the "location_history" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *EntityQuery) WithLocationHistory(opts ...func(*LocationHistoryQuery)) *EntityQuery {
+	query := (&LocationHistoryClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withLocationHistory = query
+	return _q
+}
+
 // GroupBy is used to group vertices by one or more fields/columns.
 // It is often used with aggregate functions, like: count, max, mean, min, sum.
 //
@@ -624,7 +660,7 @@ func (_q *EntityQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Entit
 		nodes       = []*Entity{}
 		withFKs     = _q.withFKs
 		_spec       = _q.querySpec()
-		loadedTypes = [8]bool{
+		loadedTypes = [9]bool{
 			_q.withGroup != nil,
 			_q.withParent != nil,
 			_q.withChildren != nil,
@@ -633,6 +669,7 @@ func (_q *EntityQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Entit
 			_q.withFields != nil,
 			_q.withMaintenanceEntries != nil,
 			_q.withAttachments != nil,
+			_q.withLocationHistory != nil,
 		}
 	)
 	if _q.withGroup != nil || _q.withParent != nil || _q.withEntityType != nil {
@@ -711,6 +748,13 @@ func (_q *EntityQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Entit
 		if err := _q.loadAttachments(ctx, query, nodes,
 			func(n *Entity) { n.Edges.Attachments = []*Attachment{} },
 			func(n *Entity, e *Attachment) { n.Edges.Attachments = append(n.Edges.Attachments, e) }); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withLocationHistory; query != nil {
+		if err := _q.loadLocationHistory(ctx, query, nodes,
+			func(n *Entity) { n.Edges.LocationHistory = []*LocationHistory{} },
+			func(n *Entity, e *LocationHistory) { n.Edges.LocationHistory = append(n.Edges.LocationHistory, e) }); err != nil {
 			return nil, err
 		}
 	}
@@ -992,6 +1036,36 @@ func (_q *EntityQuery) loadAttachments(ctx context.Context, query *AttachmentQue
 		node, ok := nodeids[*fk]
 		if !ok {
 			return fmt.Errorf(`unexpected referenced foreign-key "entity_attachments" returned %v for node %v`, *fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
+func (_q *EntityQuery) loadLocationHistory(ctx context.Context, query *LocationHistoryQuery, nodes []*Entity, init func(*Entity), assign func(*Entity, *LocationHistory)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[uuid.UUID]*Entity)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	if len(query.ctx.Fields) > 0 {
+		query.ctx.AppendFieldOnce(locationhistory.FieldEntityID)
+	}
+	query.Where(predicate.LocationHistory(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(entity.LocationHistoryColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.EntityID
+		node, ok := nodeids[fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "entity_id" returned %v for node %v`, fk, n.ID)
 		}
 		assign(node, n)
 	}

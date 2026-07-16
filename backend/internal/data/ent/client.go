@@ -27,6 +27,7 @@ import (
 	"github.com/sysadminsmedia/homebox/backend/internal/data/ent/export"
 	"github.com/sysadminsmedia/homebox/backend/internal/data/ent/group"
 	"github.com/sysadminsmedia/homebox/backend/internal/data/ent/groupinvitationtoken"
+	"github.com/sysadminsmedia/homebox/backend/internal/data/ent/locationhistory"
 	"github.com/sysadminsmedia/homebox/backend/internal/data/ent/maintenanceentry"
 	"github.com/sysadminsmedia/homebox/backend/internal/data/ent/notifier"
 	"github.com/sysadminsmedia/homebox/backend/internal/data/ent/passwordresettokens"
@@ -63,6 +64,8 @@ type Client struct {
 	Group *GroupClient
 	// GroupInvitationToken is the client for interacting with the GroupInvitationToken builders.
 	GroupInvitationToken *GroupInvitationTokenClient
+	// LocationHistory is the client for interacting with the LocationHistory builders.
+	LocationHistory *LocationHistoryClient
 	// MaintenanceEntry is the client for interacting with the MaintenanceEntry builders.
 	MaintenanceEntry *MaintenanceEntryClient
 	// Notifier is the client for interacting with the Notifier builders.
@@ -99,6 +102,7 @@ func (c *Client) init() {
 	c.Export = NewExportClient(c.config)
 	c.Group = NewGroupClient(c.config)
 	c.GroupInvitationToken = NewGroupInvitationTokenClient(c.config)
+	c.LocationHistory = NewLocationHistoryClient(c.config)
 	c.MaintenanceEntry = NewMaintenanceEntryClient(c.config)
 	c.Notifier = NewNotifierClient(c.config)
 	c.PasswordResetTokens = NewPasswordResetTokensClient(c.config)
@@ -209,6 +213,7 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 		Export:               NewExportClient(cfg),
 		Group:                NewGroupClient(cfg),
 		GroupInvitationToken: NewGroupInvitationTokenClient(cfg),
+		LocationHistory:      NewLocationHistoryClient(cfg),
 		MaintenanceEntry:     NewMaintenanceEntryClient(cfg),
 		Notifier:             NewNotifierClient(cfg),
 		PasswordResetTokens:  NewPasswordResetTokensClient(cfg),
@@ -246,6 +251,7 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 		Export:               NewExportClient(cfg),
 		Group:                NewGroupClient(cfg),
 		GroupInvitationToken: NewGroupInvitationTokenClient(cfg),
+		LocationHistory:      NewLocationHistoryClient(cfg),
 		MaintenanceEntry:     NewMaintenanceEntryClient(cfg),
 		Notifier:             NewNotifierClient(cfg),
 		PasswordResetTokens:  NewPasswordResetTokensClient(cfg),
@@ -284,8 +290,8 @@ func (c *Client) Use(hooks ...Hook) {
 	for _, n := range []interface{ Use(...Hook) }{
 		c.APIKey, c.Attachment, c.AuthRoles, c.AuthTokens, c.Entity, c.EntityField,
 		c.EntityTemplate, c.EntityType, c.Export, c.Group, c.GroupInvitationToken,
-		c.MaintenanceEntry, c.Notifier, c.PasswordResetTokens, c.Tag, c.TemplateField,
-		c.User, c.UserGroup,
+		c.LocationHistory, c.MaintenanceEntry, c.Notifier, c.PasswordResetTokens,
+		c.Tag, c.TemplateField, c.User, c.UserGroup,
 	} {
 		n.Use(hooks...)
 	}
@@ -297,8 +303,8 @@ func (c *Client) Intercept(interceptors ...Interceptor) {
 	for _, n := range []interface{ Intercept(...Interceptor) }{
 		c.APIKey, c.Attachment, c.AuthRoles, c.AuthTokens, c.Entity, c.EntityField,
 		c.EntityTemplate, c.EntityType, c.Export, c.Group, c.GroupInvitationToken,
-		c.MaintenanceEntry, c.Notifier, c.PasswordResetTokens, c.Tag, c.TemplateField,
-		c.User, c.UserGroup,
+		c.LocationHistory, c.MaintenanceEntry, c.Notifier, c.PasswordResetTokens,
+		c.Tag, c.TemplateField, c.User, c.UserGroup,
 	} {
 		n.Intercept(interceptors...)
 	}
@@ -329,6 +335,8 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.Group.mutate(ctx, m)
 	case *GroupInvitationTokenMutation:
 		return c.GroupInvitationToken.mutate(ctx, m)
+	case *LocationHistoryMutation:
+		return c.LocationHistory.mutate(ctx, m)
 	case *MaintenanceEntryMutation:
 		return c.MaintenanceEntry.mutate(ctx, m)
 	case *NotifierMutation:
@@ -1205,6 +1213,22 @@ func (c *EntityClient) QueryAttachments(_m *Entity) *AttachmentQuery {
 			sqlgraph.From(entity.Table, entity.FieldID, id),
 			sqlgraph.To(attachment.Table, attachment.FieldID),
 			sqlgraph.Edge(sqlgraph.O2M, false, entity.AttachmentsTable, entity.AttachmentsColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryLocationHistory queries the location_history edge of a Entity.
+func (c *EntityClient) QueryLocationHistory(_m *Entity) *LocationHistoryQuery {
+	query := (&LocationHistoryClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(entity.Table, entity.FieldID, id),
+			sqlgraph.To(locationhistory.Table, locationhistory.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, entity.LocationHistoryTable, entity.LocationHistoryColumn),
 		)
 		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
 		return fromV, nil
@@ -2320,6 +2344,171 @@ func (c *GroupInvitationTokenClient) mutate(ctx context.Context, m *GroupInvitat
 		return (&GroupInvitationTokenDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
 	default:
 		return nil, fmt.Errorf("ent: unknown GroupInvitationToken mutation op: %q", m.Op())
+	}
+}
+
+// LocationHistoryClient is a client for the LocationHistory schema.
+type LocationHistoryClient struct {
+	config
+}
+
+// NewLocationHistoryClient returns a client for the LocationHistory from the given config.
+func NewLocationHistoryClient(c config) *LocationHistoryClient {
+	return &LocationHistoryClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `locationhistory.Hooks(f(g(h())))`.
+func (c *LocationHistoryClient) Use(hooks ...Hook) {
+	c.hooks.LocationHistory = append(c.hooks.LocationHistory, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `locationhistory.Intercept(f(g(h())))`.
+func (c *LocationHistoryClient) Intercept(interceptors ...Interceptor) {
+	c.inters.LocationHistory = append(c.inters.LocationHistory, interceptors...)
+}
+
+// Create returns a builder for creating a LocationHistory entity.
+func (c *LocationHistoryClient) Create() *LocationHistoryCreate {
+	mutation := newLocationHistoryMutation(c.config, OpCreate)
+	return &LocationHistoryCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of LocationHistory entities.
+func (c *LocationHistoryClient) CreateBulk(builders ...*LocationHistoryCreate) *LocationHistoryCreateBulk {
+	return &LocationHistoryCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *LocationHistoryClient) MapCreateBulk(slice any, setFunc func(*LocationHistoryCreate, int)) *LocationHistoryCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &LocationHistoryCreateBulk{err: fmt.Errorf("calling to LocationHistoryClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*LocationHistoryCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &LocationHistoryCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for LocationHistory.
+func (c *LocationHistoryClient) Update() *LocationHistoryUpdate {
+	mutation := newLocationHistoryMutation(c.config, OpUpdate)
+	return &LocationHistoryUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *LocationHistoryClient) UpdateOne(_m *LocationHistory) *LocationHistoryUpdateOne {
+	mutation := newLocationHistoryMutation(c.config, OpUpdateOne, withLocationHistory(_m))
+	return &LocationHistoryUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *LocationHistoryClient) UpdateOneID(id uuid.UUID) *LocationHistoryUpdateOne {
+	mutation := newLocationHistoryMutation(c.config, OpUpdateOne, withLocationHistoryID(id))
+	return &LocationHistoryUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for LocationHistory.
+func (c *LocationHistoryClient) Delete() *LocationHistoryDelete {
+	mutation := newLocationHistoryMutation(c.config, OpDelete)
+	return &LocationHistoryDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *LocationHistoryClient) DeleteOne(_m *LocationHistory) *LocationHistoryDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *LocationHistoryClient) DeleteOneID(id uuid.UUID) *LocationHistoryDeleteOne {
+	builder := c.Delete().Where(locationhistory.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &LocationHistoryDeleteOne{builder}
+}
+
+// Query returns a query builder for LocationHistory.
+func (c *LocationHistoryClient) Query() *LocationHistoryQuery {
+	return &LocationHistoryQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeLocationHistory},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a LocationHistory entity by its id.
+func (c *LocationHistoryClient) Get(ctx context.Context, id uuid.UUID) (*LocationHistory, error) {
+	return c.Query().Where(locationhistory.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *LocationHistoryClient) GetX(ctx context.Context, id uuid.UUID) *LocationHistory {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QueryEntity queries the entity edge of a LocationHistory.
+func (c *LocationHistoryClient) QueryEntity(_m *LocationHistory) *EntityQuery {
+	query := (&EntityClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(locationhistory.Table, locationhistory.FieldID, id),
+			sqlgraph.To(entity.Table, entity.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, locationhistory.EntityTable, locationhistory.EntityColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryLocation queries the location edge of a LocationHistory.
+func (c *LocationHistoryClient) QueryLocation(_m *LocationHistory) *EntityQuery {
+	query := (&EntityClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(locationhistory.Table, locationhistory.FieldID, id),
+			sqlgraph.To(entity.Table, entity.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, false, locationhistory.LocationTable, locationhistory.LocationColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *LocationHistoryClient) Hooks() []Hook {
+	return c.hooks.LocationHistory
+}
+
+// Interceptors returns the client interceptors.
+func (c *LocationHistoryClient) Interceptors() []Interceptor {
+	return c.inters.LocationHistory
+}
+
+func (c *LocationHistoryClient) mutate(ctx context.Context, m *LocationHistoryMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&LocationHistoryCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&LocationHistoryUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&LocationHistoryUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&LocationHistoryDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown LocationHistory mutation op: %q", m.Op())
 	}
 }
 
@@ -3481,12 +3670,14 @@ func (c *UserGroupClient) mutate(ctx context.Context, m *UserGroupMutation) (Val
 type (
 	hooks struct {
 		APIKey, Attachment, AuthRoles, AuthTokens, Entity, EntityField, EntityTemplate,
-		EntityType, Export, Group, GroupInvitationToken, MaintenanceEntry, Notifier,
-		PasswordResetTokens, Tag, TemplateField, User, UserGroup []ent.Hook
+		EntityType, Export, Group, GroupInvitationToken, LocationHistory,
+		MaintenanceEntry, Notifier, PasswordResetTokens, Tag, TemplateField, User,
+		UserGroup []ent.Hook
 	}
 	inters struct {
 		APIKey, Attachment, AuthRoles, AuthTokens, Entity, EntityField, EntityTemplate,
-		EntityType, Export, Group, GroupInvitationToken, MaintenanceEntry, Notifier,
-		PasswordResetTokens, Tag, TemplateField, User, UserGroup []ent.Interceptor
+		EntityType, Export, Group, GroupInvitationToken, LocationHistory,
+		MaintenanceEntry, Notifier, PasswordResetTokens, Tag, TemplateField, User,
+		UserGroup []ent.Interceptor
 	}
 )

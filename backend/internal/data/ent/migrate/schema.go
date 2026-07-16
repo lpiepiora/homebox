@@ -405,6 +405,43 @@ var (
 			},
 		},
 	}
+	// LocationHistoriesColumns holds the columns for the "location_histories" table.
+	LocationHistoriesColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeUUID},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "updated_at", Type: field.TypeTime},
+		{Name: "moved_in", Type: field.TypeTime},
+		{Name: "moved_out", Type: field.TypeTime, Nullable: true},
+		{Name: "entity_id", Type: field.TypeUUID},
+		{Name: "location_id", Type: field.TypeUUID},
+	}
+	// LocationHistoriesTable holds the schema information for the "location_histories" table.
+	LocationHistoriesTable = &schema.Table{
+		Name:       "location_histories",
+		Columns:    LocationHistoriesColumns,
+		PrimaryKey: []*schema.Column{LocationHistoriesColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "location_histories_entities_location_history",
+				Columns:    []*schema.Column{LocationHistoriesColumns[5]},
+				RefColumns: []*schema.Column{EntitiesColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+			{
+				Symbol:     "location_histories_entities_location",
+				Columns:    []*schema.Column{LocationHistoriesColumns[6]},
+				RefColumns: []*schema.Column{EntitiesColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "locationhistory_entity_id",
+				Unique:  false,
+				Columns: []*schema.Column{LocationHistoriesColumns[5]},
+			},
+		},
+	}
 	// MaintenanceEntriesColumns holds the columns for the "maintenance_entries" table.
 	MaintenanceEntriesColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeUUID},
@@ -668,6 +705,7 @@ var (
 		ExportsTable,
 		GroupsTable,
 		GroupInvitationTokensTable,
+		LocationHistoriesTable,
 		MaintenanceEntriesTable,
 		NotifiersTable,
 		PasswordResetTokensTable,
@@ -695,6 +733,8 @@ func init() {
 	EntityTypesTable.ForeignKeys[1].RefTable = GroupsTable
 	ExportsTable.ForeignKeys[0].RefTable = GroupsTable
 	GroupInvitationTokensTable.ForeignKeys[0].RefTable = GroupsTable
+	LocationHistoriesTable.ForeignKeys[0].RefTable = EntitiesTable
+	LocationHistoriesTable.ForeignKeys[1].RefTable = EntitiesTable
 	MaintenanceEntriesTable.ForeignKeys[0].RefTable = EntitiesTable
 	NotifiersTable.ForeignKeys[0].RefTable = GroupsTable
 	NotifiersTable.ForeignKeys[1].RefTable = UsersTable

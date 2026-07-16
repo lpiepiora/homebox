@@ -156,6 +156,9 @@ func TestEntityRepository_Create(t *testing.T) {
 	container, err := tRepos.Entities.Create(context.Background(), tGroup.ID, cf)
 	require.NoError(t, err)
 
+	// the top level entities do not have history (no parent location)
+	assert.Equal(t, 0, len(container.LocationHistory))
+
 	itm := entityFactory()
 	itm.ParentID = container.ID
 	itm.EntityTypeID = itemET.ID
@@ -163,6 +166,12 @@ func TestEntityRepository_Create(t *testing.T) {
 	result, err := tRepos.Entities.Create(context.Background(), tGroup.ID, itm)
 	require.NoError(t, err)
 	assert.NotEmpty(t, result.ID)
+
+	locHistoryEntry := result.LocationHistory[0]
+	assert.Equal(t, itm.ParentID, locHistoryEntry.Location.ID)
+	assert.WithinDuration(t, time.Now(), locHistoryEntry.MovedIn, 10*time.Second)
+	assert.Nil(t, locHistoryEntry.MovedOut)
+	assert.Len(t, result.LocationHistory, 1)
 
 	// Cleanup
 	err = tRepos.Entities.Delete(context.Background(), result.ID)
@@ -249,6 +258,12 @@ func TestEntityRepository_Create_WithParent(t *testing.T) {
 	assert.Equal(t, result.ID, foundEntity.ID)
 	assert.NotNil(t, foundEntity.Parent)
 	assert.Equal(t, container.ID, foundEntity.Parent.ID)
+
+	locHistoryEntry := foundEntity.LocationHistory[0]
+	assert.Equal(t, itm.ParentID, locHistoryEntry.Location.ID)
+	assert.WithinDuration(t, time.Now(), locHistoryEntry.MovedIn, 10*time.Second)
+	assert.Nil(t, locHistoryEntry.MovedOut)
+	assert.Len(t, result.LocationHistory, 1)
 
 	// Cleanup
 	err = tRepos.Entities.Delete(context.Background(), result.ID)
@@ -340,6 +355,8 @@ func TestEntityRepository_Update(t *testing.T) {
 
 	e := entities[0]
 
+	require.Len(t, e.LocationHistory, 1, "should start with single loc history item")
+
 	updateData := EntityUpdate{
 		ID:               e.ID,
 		Name:             e.Name,
@@ -365,6 +382,8 @@ func TestEntityRepository_Update(t *testing.T) {
 
 	updatedEntity, err := tRepos.Entities.UpdateByGroup(context.Background(), tGroup.ID, updateData)
 	require.NoError(t, err)
+
+	assert.Len(t, e.LocationHistory, 1, "should not modify history (no changes to the parent)")
 
 	got, err := tRepos.Entities.GetOne(context.Background(), updatedEntity.ID)
 	require.NoError(t, err)
@@ -472,6 +491,12 @@ func TestEntityRepository_CreateFromTemplate_DefaultsEntityType(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, out.EntityType)
 	assert.False(t, out.EntityType.IsLocation)
+
+	locHistoryEntry := out.LocationHistory[0]
+	assert.Equal(t, container.ID, locHistoryEntry.Location.ID)
+	assert.WithinDuration(t, time.Now(), locHistoryEntry.MovedIn, 10*time.Second)
+	assert.Nil(t, locHistoryEntry.MovedOut)
+	assert.Len(t, out.LocationHistory, 1)
 
 	// Cleanup
 	err = tRepos.Entities.Delete(context.Background(), out.ID)
@@ -943,4 +968,67 @@ func TestEntityRepository_RejectsNegativeQuantity(t *testing.T) {
 	negative := -2.0
 	err = tRepos.Entities.Patch(ctx, tGroup.ID, e.ID, EntityPatch{ID: e.ID, Quantity: &negative})
 	require.ErrorContains(t, err, "must not be negative")
+}
+
+func TestEntityRepository_ChangeParentRecordsHistory(t *testing.T) {
+	containerET := useContainerEntityType(t)
+	itemET := useItemEntityType(t)
+
+	cf := containerFactory()
+	cf.EntityTypeID = containerET.ID
+	firstContainer, err := tRepos.Entities.Create(context.Background(), tGroup.ID, cf)
+	require.NoError(t, err)
+
+	itm := entityFactory()
+	itm.ParentID = firstContainer.ID
+	itm.EntityTypeID = itemET.ID
+
+	result, err := tRepos.Entities.Create(context.Background(), tGroup.ID, itm)
+	require.NoError(t, err)
+	assert.NotEmpty(t, result.ID)
+
+	locHistoryEntry := result.LocationHistory[0]
+	assert.Equal(t, itm.ParentID, locHistoryEntry.Location.ID)
+	assert.WithinDuration(t, time.Now(), locHistoryEntry.MovedIn, 10*time.Second)
+	assert.Nil(t, locHistoryEntry.MovedOut)
+	assert.Len(t, result.LocationHistory, 1)
+
+	// move to the second location
+	secondContainer, err := tRepos.Entities.Create(context.Background(), tGroup.ID, cf)
+	require.NoError(t, err)
+
+	update := EntityUpdate{
+		ID:          result.ID,
+		ParentID:    secondContainer.ID,
+		Name:        result.Name,
+		Description: result.Description,
+	}
+	_, err = tRepos.Entities.UpdateByGroup(context.Background(), tGroup.ID, update)
+	require.NoError(t, err)
+
+	// Check Parent ID
+	updated, err := tRepos.Entities.GetOne(context.Background(), result.ID)
+	require.NoError(t, err)
+	assert.Equal(t, secondContainer.ID, updated.Parent.ID)
+
+	assert.Equal(t, firstContainer.ID, updated.LocationHistory[0].Location.ID)
+	assert.Equal(t, locHistoryEntry.MovedIn, updated.LocationHistory[0].MovedIn)
+	assert.WithinDuration(t, time.Now(), *updated.LocationHistory[0].MovedOut, 10*time.Second)
+
+	assert.Equal(t, secondContainer.ID, updated.LocationHistory[1].Location.ID)
+	assert.WithinDuration(t, time.Now(), updated.LocationHistory[1].MovedIn, 10*time.Second)
+	// moved in should equal to moved out of the old location
+	assert.Equal(t, updated.LocationHistory[1].MovedIn, *updated.LocationHistory[0].MovedOut)
+	assert.Nil(t, updated.LocationHistory[1].MovedOut)
+
+	assert.Len(t, updated.LocationHistory, 2)
+
+	// Remove Parent ID
+	update.ParentID = uuid.Nil
+	result, err = tRepos.Entities.UpdateByGroup(context.Background(), tGroup.ID, update)
+	require.NoError(t, err)
+
+	assert.NotNil(t, *result.LocationHistory[0].MovedOut)
+	assert.NotNil(t, *result.LocationHistory[1].MovedOut)
+	assert.Len(t, result.LocationHistory, 2)
 }

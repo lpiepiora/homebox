@@ -1605,6 +1605,29 @@ func HasAttachmentsWith(preds ...predicate.Attachment) predicate.Entity {
 	})
 }
 
+// HasLocationHistory applies the HasEdge predicate on the "location_history" edge.
+func HasLocationHistory() predicate.Entity {
+	return predicate.Entity(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, LocationHistoryTable, LocationHistoryColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasLocationHistoryWith applies the HasEdge predicate on the "location_history" edge with a given conditions (other predicates).
+func HasLocationHistoryWith(preds ...predicate.LocationHistory) predicate.Entity {
+	return predicate.Entity(func(s *sql.Selector) {
+		step := newLocationHistoryStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
 // And groups predicates with the AND operator between them.
 func And(predicates ...predicate.Entity) predicate.Entity {
 	return predicate.Entity(sql.AndPredicates(predicates...))

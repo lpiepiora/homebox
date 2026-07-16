@@ -34,6 +34,8 @@ type Tx struct {
 	Group *GroupClient
 	// GroupInvitationToken is the client for interacting with the GroupInvitationToken builders.
 	GroupInvitationToken *GroupInvitationTokenClient
+	// LocationHistory is the client for interacting with the LocationHistory builders.
+	LocationHistory *LocationHistoryClient
 	// MaintenanceEntry is the client for interacting with the MaintenanceEntry builders.
 	MaintenanceEntry *MaintenanceEntryClient
 	// Notifier is the client for interacting with the Notifier builders.
@@ -190,6 +192,7 @@ func (tx *Tx) init() {
 	tx.Export = NewExportClient(tx.config)
 	tx.Group = NewGroupClient(tx.config)
 	tx.GroupInvitationToken = NewGroupInvitationTokenClient(tx.config)
+	tx.LocationHistory = NewLocationHistoryClient(tx.config)
 	tx.MaintenanceEntry = NewMaintenanceEntryClient(tx.config)
 	tx.Notifier = NewNotifierClient(tx.config)
 	tx.PasswordResetTokens = NewPasswordResetTokensClient(tx.config)

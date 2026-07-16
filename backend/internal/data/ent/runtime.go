@@ -16,6 +16,7 @@ import (
 	"github.com/sysadminsmedia/homebox/backend/internal/data/ent/export"
 	"github.com/sysadminsmedia/homebox/backend/internal/data/ent/group"
 	"github.com/sysadminsmedia/homebox/backend/internal/data/ent/groupinvitationtoken"
+	"github.com/sysadminsmedia/homebox/backend/internal/data/ent/locationhistory"
 	"github.com/sysadminsmedia/homebox/backend/internal/data/ent/maintenanceentry"
 	"github.com/sysadminsmedia/homebox/backend/internal/data/ent/notifier"
 	"github.com/sysadminsmedia/homebox/backend/internal/data/ent/passwordresettokens"
@@ -525,6 +526,25 @@ func init() {
 	groupinvitationtokenDescID := groupinvitationtokenMixinFields0[0].Descriptor()
 	// groupinvitationtoken.DefaultID holds the default value on creation for the id field.
 	groupinvitationtoken.DefaultID = groupinvitationtokenDescID.Default.(func() uuid.UUID)
+	locationhistoryMixin := schema.LocationHistory{}.Mixin()
+	locationhistoryMixinFields0 := locationhistoryMixin[0].Fields()
+	_ = locationhistoryMixinFields0
+	locationhistoryFields := schema.LocationHistory{}.Fields()
+	_ = locationhistoryFields
+	// locationhistoryDescCreatedAt is the schema descriptor for created_at field.
+	locationhistoryDescCreatedAt := locationhistoryMixinFields0[1].Descriptor()
+	// locationhistory.DefaultCreatedAt holds the default value on creation for the created_at field.
+	locationhistory.DefaultCreatedAt = locationhistoryDescCreatedAt.Default.(func() time.Time)
+	// locationhistoryDescUpdatedAt is the schema descriptor for updated_at field.
+	locationhistoryDescUpdatedAt := locationhistoryMixinFields0[2].Descriptor()
+	// locationhistory.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	locationhistory.DefaultUpdatedAt = locationhistoryDescUpdatedAt.Default.(func() time.Time)
+	// locationhistory.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	locationhistory.UpdateDefaultUpdatedAt = locationhistoryDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// locationhistoryDescID is the schema descriptor for id field.
+	locationhistoryDescID := locationhistoryMixinFields0[0].Descriptor()
+	// locationhistory.DefaultID holds the default value on creation for the id field.
+	locationhistory.DefaultID = locationhistoryDescID.Default.(func() uuid.UUID)
 	maintenanceentryMixin := schema.MaintenanceEntry{}.Mixin()
 	maintenanceentryMixinFields0 := maintenanceentryMixin[0].Fields()
 	_ = maintenanceentryMixinFields0

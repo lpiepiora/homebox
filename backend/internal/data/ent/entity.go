@@ -95,9 +95,11 @@ type EntityEdges struct {
 	MaintenanceEntries []*MaintenanceEntry `json:"maintenance_entries,omitempty"`
 	// Attachments holds the value of the attachments edge.
 	Attachments []*Attachment `json:"attachments,omitempty"`
+	// LocationHistory holds the value of the location_history edge.
+	LocationHistory []*LocationHistory `json:"location_history,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [8]bool
+	loadedTypes [9]bool
 }
 
 // GroupOrErr returns the Group value or an error if the edge
@@ -176,6 +178,15 @@ func (e EntityEdges) AttachmentsOrErr() ([]*Attachment, error) {
 		return e.Attachments, nil
 	}
 	return nil, &NotLoadedError{edge: "attachments"}
+}
+
+// LocationHistoryOrErr returns the LocationHistory value or an error if the edge
+// was not loaded in eager-loading.
+func (e EntityEdges) LocationHistoryOrErr() ([]*LocationHistory, error) {
+	if e.loadedTypes[8] {
+		return e.LocationHistory, nil
+	}
+	return nil, &NotLoadedError{edge: "location_history"}
 }
 
 // scanValues returns the types for scanning values from sql.Rows.
@@ -438,6 +449,11 @@ func (_m *Entity) QueryMaintenanceEntries() *MaintenanceEntryQuery {
 // QueryAttachments queries the "attachments" edge of the Entity entity.
 func (_m *Entity) QueryAttachments() *AttachmentQuery {
 	return NewEntityClient(_m.config).QueryAttachments(_m)
+}
+
+// QueryLocationHistory queries the "location_history" edge of the Entity entity.
+func (_m *Entity) QueryLocationHistory() *LocationHistoryQuery {
+	return NewEntityClient(_m.config).QueryLocationHistory(_m)
 }
 
 // Update returns a builder for updating this Entity.

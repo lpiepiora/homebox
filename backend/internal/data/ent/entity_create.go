@@ -16,6 +16,7 @@ import (
 	"github.com/sysadminsmedia/homebox/backend/internal/data/ent/entityfield"
 	"github.com/sysadminsmedia/homebox/backend/internal/data/ent/entitytype"
 	"github.com/sysadminsmedia/homebox/backend/internal/data/ent/group"
+	"github.com/sysadminsmedia/homebox/backend/internal/data/ent/locationhistory"
 	"github.com/sysadminsmedia/homebox/backend/internal/data/ent/maintenanceentry"
 	"github.com/sysadminsmedia/homebox/backend/internal/data/ent/tag"
 )
@@ -485,6 +486,21 @@ func (_c *EntityCreate) AddAttachments(v ...*Attachment) *EntityCreate {
 	return _c.AddAttachmentIDs(ids...)
 }
 
+// AddLocationHistoryIDs adds the "location_history" edge to the LocationHistory entity by IDs.
+func (_c *EntityCreate) AddLocationHistoryIDs(ids ...uuid.UUID) *EntityCreate {
+	_c.mutation.AddLocationHistoryIDs(ids...)
+	return _c
+}
+
+// AddLocationHistory adds the "location_history" edges to the LocationHistory entity.
+func (_c *EntityCreate) AddLocationHistory(v ...*LocationHistory) *EntityCreate {
+	ids := make([]uuid.UUID, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddLocationHistoryIDs(ids...)
+}
+
 // Mutation returns the EntityMutation object of the builder.
 func (_c *EntityCreate) Mutation() *EntityMutation {
 	return _c.mutation
@@ -907,6 +923,22 @@ func (_c *EntityCreate) createSpec() (*Entity, *sqlgraph.CreateSpec) {
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(attachment.FieldID, field.TypeUUID),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.LocationHistoryIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   entity.LocationHistoryTable,
+			Columns: []string{entity.LocationHistoryColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(locationhistory.FieldID, field.TypeUUID),
 			},
 		}
 		for _, k := range nodes {

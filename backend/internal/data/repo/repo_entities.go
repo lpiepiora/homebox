@@ -18,6 +18,7 @@ import (
 	"github.com/sysadminsmedia/homebox/backend/internal/data/ent/entityfield"
 	"github.com/sysadminsmedia/homebox/backend/internal/data/ent/entitytype"
 	"github.com/sysadminsmedia/homebox/backend/internal/data/ent/group"
+	"github.com/sysadminsmedia/homebox/backend/internal/data/ent/locationhistory"
 	"github.com/sysadminsmedia/homebox/backend/internal/data/ent/maintenanceentry"
 	"github.com/sysadminsmedia/homebox/backend/internal/data/ent/predicate"
 	"github.com/sysadminsmedia/homebox/backend/internal/data/ent/tag"
@@ -85,6 +86,13 @@ type (
 		TextValue    string    `json:"textValue"`
 		NumberValue  int       `json:"numberValue"`
 		BooleanValue bool      `json:"booleanValue"`
+	}
+
+	LocationHistory struct {
+		ID       uuid.UUID     `json:"id"`
+		Location EntitySummary `json:"location"`
+		MovedIn  time.Time     `json:"movedIn,omitempty" extensions:"x-nullable,x-omitempty"`
+		MovedOut *time.Time    `json:"movedOut,omitempty" extensions:"x-nullable,x-omitempty"`
 	}
 
 	EntityCreate struct {
@@ -224,6 +232,9 @@ type (
 		// Container-specific fields (for entities whose entity_type.is_location = true)
 		Children   []EntitySummary `json:"children,omitempty"`
 		TotalPrice float64         `json:"totalPrice,omitempty"`
+
+		// History where the entity was stored at and where it's being stored now.
+		LocationHistory []LocationHistory `json:"locationHistory"`
 	}
 
 	// EntityOutCount is used for container listing with child count.
@@ -336,6 +347,18 @@ func mapEntityOut(e *ent.Entity) EntityOut {
 		})
 	}
 
+	var locationHistory []LocationHistory
+	if e.Edges.LocationHistory != nil {
+		locationHistory = lo.Map(e.Edges.LocationHistory, func(lh *ent.LocationHistory, _ int) LocationHistory {
+			return LocationHistory{
+				ID:       lh.ID,
+				Location: mapEntitySummary(lh.Edges.Location),
+				MovedIn:  lh.MovedIn,
+				MovedOut: lh.MovedOut,
+			}
+		})
+	}
+
 	return EntityOut{
 		Parent:                   parent,
 		AssetID:                  AssetID(e.AssetID),
@@ -361,10 +384,11 @@ func mapEntityOut(e *ent.Entity) EntityOut {
 		SoldNotes: e.SoldNotes,
 
 		// Extras
-		Notes:       e.Notes,
-		Attachments: attachments,
-		Fields:      fields,
-		Children:    children,
+		Notes:           e.Notes,
+		Attachments:     attachments,
+		Fields:          fields,
+		Children:        children,
+		LocationHistory: locationHistory,
 	}
 }
 
@@ -422,6 +446,62 @@ func (r *EntityRepository) publishMutationEvent(gid uuid.UUID) {
 	}
 }
 
+// Entity History Handling
+
+type entityLocation struct {
+	entityID uuid.UUID
+	parentID uuid.UUID
+}
+
+// Updates location history of an entity.
+func updateLocationHistory(ctx context.Context, tx *ent.Tx, loc entityLocation) error {
+
+	now := time.Now()
+
+	// it's easier to just try to apply the update, and act if it succeeds
+	updQ := tx.LocationHistory.Update().
+		SetMovedOut(now).
+		Where(
+			locationhistory.EntityIDEQ(loc.entityID),
+			locationhistory.LocationIDNEQ(loc.parentID),
+			locationhistory.MovedOutIsNil(),
+		)
+
+	err := updQ.Exec(ctx)
+	if err != nil {
+		return err
+	}
+
+	if loc.parentID == uuid.Nil {
+		fmt.Printf("early exit!\n")
+		return nil
+	}
+
+	exists, err := tx.LocationHistory.Query().Where(
+		locationhistory.EntityIDEQ(loc.entityID),
+		locationhistory.LocationIDEQ(loc.parentID),
+		locationhistory.MovedOutIsNil(),
+	).Exist(ctx)
+	if err != nil {
+		return err
+	}
+	if exists {
+		return nil
+	}
+
+	// we have moved out, so we need to add a new entry
+	_, err = tx.LocationHistory.
+		Create().
+		SetEntityID(loc.entityID).
+		SetLocationID(loc.parentID).
+		SetMovedIn(now).
+		Save(ctx)
+
+	return err
+}
+
+// END Entity History Handling
+
 func (r *EntityRepository) getOneTx(ctx context.Context, tx *ent.Tx, where ...predicate.Entity) (EntityOut, error) {
 	ctx, span := entityTracer().Start(ctx, "repo.EntityRepository.getOneTx",
 		trace.WithAttributes(
@@ -449,6 +529,9 @@ func (r *EntityRepository) getOneTx(ctx context.Context, tx *ent.Tx, where ...pr
 			eq.WithEntityType()
 		}).
 		WithAttachments().
+		WithLocationHistory(func(eq *ent.LocationHistoryQuery) {
+			eq.WithLocation()
+		}).
 		Only(ctx)
 	if err != nil {
 		recordSpanError(span, err)
@@ -1070,7 +1153,13 @@ func (r *EntityRepository) Create(ctx context.Context, gid uuid.UUID, data Entit
 		return EntityOut{}, err
 	}
 
-	q := r.db.Entity.Create().
+	tx, err := r.db.Tx(ctx)
+	if err != nil {
+		recordSpanError(span, err)
+		return EntityOut{}, err
+	}
+
+	q := tx.Entity.Create().
 		SetImportRef(data.ImportRef).
 		SetName(data.Name).
 		SetQuantity(data.Quantity).
@@ -1100,15 +1189,31 @@ func (r *EntityRepository) Create(ctx context.Context, gid uuid.UUID, data Entit
 		q.AddTagIDs(data.TagIDs...)
 	}
 
-	result, err := q.Save(ctx)
+	newEntity, err := q.Save(ctx)
 	if err != nil {
+		_ = tx.Rollback()
 		recordSpanError(span, err)
 		return EntityOut{}, err
 	}
 
-	span.SetAttributes(attribute.String("entity.id", result.ID.String()))
+	err = updateLocationHistory(ctx, tx, entityLocation{
+		entityID: newEntity.ID,
+		parentID: data.ParentID,
+	})
+	if err != nil {
+		_ = tx.Rollback()
+		recordSpanError(span, err)
+		return EntityOut{}, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		recordSpanError(span, err)
+		return EntityOut{}, nil
+	}
+
+	span.SetAttributes(attribute.String("entity.id", newEntity.ID.String()))
 	r.publishMutationEvent(gid)
-	out, err := r.GetOne(ctx, result.ID)
+	out, err := r.GetOne(ctx, newEntity.ID)
 	recordSpanError(span, err)
 	return out, err
 }
@@ -1228,12 +1333,25 @@ func (r *EntityRepository) CreateFromTemplate(ctx context.Context, gid uuid.UUID
 
 	_, err = entityBuilder.Save(entityCtx)
 	if err != nil {
+		_ = tx.Rollback()
 		recordSpanError(entitySpan, err)
 		entitySpan.End()
 		recordSpanError(span, err)
 		return EntityOut{}, err
 	}
 	entitySpan.End()
+
+	err = updateLocationHistory(ctx, tx, entityLocation{
+		entityID: newEntityID,
+		parentID: data.ParentID,
+	})
+	if err != nil {
+		_ = tx.Rollback()
+		recordSpanError(entitySpan, err)
+		entitySpan.End()
+		recordSpanError(span, err)
+		return EntityOut{}, nil
+	}
 
 	if len(data.Fields) > 0 {
 		fieldsCtx, fieldsSpan := entityTracer().Start(ctx, "repo.EntityRepository.CreateFromTemplate.fields",
@@ -1542,7 +1660,13 @@ func (r *EntityRepository) UpdateByGroup(ctx context.Context, gid uuid.UUID, dat
 		return EntityOut{}, err
 	}
 
-	q := r.db.Entity.Update().Where(entity.ID(data.ID), entity.HasGroupWith(group.ID(gid))).
+	tx, err := r.db.Tx(ctx)
+	if err != nil {
+		recordSpanError(span, err)
+		return EntityOut{}, err
+	}
+
+	q := tx.Entity.Update().Where(entity.ID(data.ID), entity.HasGroupWith(group.ID(gid))).
 		SetName(data.Name).
 		SetDescription(data.Description).
 		SetSerialNumber(data.SerialNumber).
@@ -1586,8 +1710,9 @@ func (r *EntityRepository) UpdateByGroup(ctx context.Context, gid uuid.UUID, dat
 	}
 
 	tagsCtx, tagsSpan := entityTracer().Start(ctx, "repo.EntityRepository.UpdateByGroup.tags")
-	currentTags, err := r.db.Entity.Query().Where(entity.ID(data.ID)).QueryTag().All(tagsCtx)
+	currentTags, err := tx.Entity.Query().Where(entity.ID(data.ID)).QueryTag().All(tagsCtx)
 	if err != nil {
+		_ = tx.Rollback()
 		recordSpanError(tagsSpan, err)
 		tagsSpan.End()
 		recordSpanError(span, err)
@@ -1631,6 +1756,7 @@ func (r *EntityRepository) UpdateByGroup(ctx context.Context, gid uuid.UUID, dat
 	_, execSpan := entityTracer().Start(ctx, "repo.EntityRepository.UpdateByGroup.exec")
 	err = q.Exec(ctx)
 	if err != nil {
+		_ = tx.Rollback()
 		recordSpanError(execSpan, err)
 		execSpan.End()
 		recordSpanError(span, err)
@@ -1640,8 +1766,9 @@ func (r *EntityRepository) UpdateByGroup(ctx context.Context, gid uuid.UUID, dat
 
 	fieldsCtx, fieldsSpan := entityTracer().Start(ctx, "repo.EntityRepository.UpdateByGroup.fields",
 		trace.WithAttributes(attribute.Int("fields.input.count", len(data.Fields))))
-	fields, err := r.db.EntityField.Query().Where(entityfield.HasEntityWith(entity.ID(data.ID))).All(fieldsCtx)
+	fields, err := tx.EntityField.Query().Where(entityfield.HasEntityWith(entity.ID(data.ID))).All(fieldsCtx)
 	if err != nil {
+		_ = tx.Rollback()
 		recordSpanError(fieldsSpan, err)
 		fieldsSpan.End()
 		recordSpanError(span, err)
@@ -1656,7 +1783,7 @@ func (r *EntityRepository) UpdateByGroup(ctx context.Context, gid uuid.UUID, dat
 	// Update Existing Fields
 	for _, f := range data.Fields {
 		if f.ID == uuid.Nil {
-			_, err = r.db.EntityField.Create().
+			_, err = tx.EntityField.Create().
 				SetEntityID(data.ID).
 				SetType(entityfield.Type(f.Type)).
 				SetName(f.Name).
@@ -1665,15 +1792,17 @@ func (r *EntityRepository) UpdateByGroup(ctx context.Context, gid uuid.UUID, dat
 				SetBooleanValue(f.BooleanValue).
 				Save(fieldsCtx)
 			if err != nil {
+				_ = tx.Rollback()
 				recordSpanError(fieldsSpan, err)
 				fieldsSpan.End()
 				recordSpanError(span, err)
 				return EntityOut{}, err
 			}
 			createdFields++
+			continue
 		}
 
-		opt := r.db.EntityField.Update().
+		opt := tx.EntityField.Update().
 			Where(
 				entityfield.ID(f.ID),
 				entityfield.HasEntityWith(entity.ID(data.ID)),
@@ -1686,6 +1815,7 @@ func (r *EntityRepository) UpdateByGroup(ctx context.Context, gid uuid.UUID, dat
 
 		_, err = opt.Save(fieldsCtx)
 		if err != nil {
+			_ = tx.Rollback()
 			recordSpanError(fieldsSpan, err)
 			fieldsSpan.End()
 			recordSpanError(span, err)
@@ -1694,17 +1824,17 @@ func (r *EntityRepository) UpdateByGroup(ctx context.Context, gid uuid.UUID, dat
 		updatedFields++
 
 		fieldIds.Remove(f.ID)
-		continue
 	}
 
 	deletedFields := 0
 	if fieldIds.Len() > 0 {
-		deletedFields, err = r.db.EntityField.Delete().
+		deletedFields, err = tx.EntityField.Delete().
 			Where(
 				entityfield.IDIn(fieldIds.Slice()...),
 				entityfield.HasEntityWith(entity.ID(data.ID)),
 			).Exec(fieldsCtx)
 		if err != nil {
+			_ = tx.Rollback()
 			recordSpanError(fieldsSpan, err)
 			fieldsSpan.End()
 			recordSpanError(span, err)
@@ -1717,6 +1847,21 @@ func (r *EntityRepository) UpdateByGroup(ctx context.Context, gid uuid.UUID, dat
 		attribute.Int("fields.deleted.count", deletedFields),
 	)
 	fieldsSpan.End()
+
+	err = updateLocationHistory(ctx, tx, entityLocation{
+		entityID: data.ID,
+		parentID: data.ParentID,
+	})
+	if err != nil {
+		_ = tx.Rollback()
+		recordSpanError(span, err)
+		return EntityOut{}, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		recordSpanError(span, err)
+		return EntityOut{}, nil
+	}
 
 	r.publishMutationEvent(gid)
 	out, err := r.GetOne(ctx, data.ID)
@@ -1888,6 +2033,15 @@ func (r *EntityRepository) Patch(ctx context.Context, gid, id uuid.UUID, data En
 			recordSpanError(span, err)
 			return err
 		}
+	}
+
+	err = updateLocationHistory(ctx, tx, entityLocation{
+		entityID: id,
+		parentID: data.ParentID,
+	})
+	if err != nil {
+		recordSpanError(span, err)
+		return err
 	}
 
 	// A parent change deliberately leaves children alone: they stay attached
@@ -2240,7 +2394,7 @@ func (r *EntityRepository) Duplicate(ctx context.Context, gid, id uuid.UUID, opt
 		entityBuilder.AddTagIDs(tagIDs...)
 	}
 
-	_, err = entityBuilder.Save(entityCtx)
+	newEntity, err := entityBuilder.Save(entityCtx)
 	if err != nil {
 		recordSpanError(entitySpan, err)
 		entitySpan.End()
@@ -2248,6 +2402,16 @@ func (r *EntityRepository) Duplicate(ctx context.Context, gid, id uuid.UUID, opt
 		return EntityOut{}, err
 	}
 	entitySpan.End()
+
+	err = updateLocationHistory(ctx, tx, entityLocation{
+		entityID: newEntity.ID,
+		parentID: originalEntity.Parent.ID,
+	})
+	if err != nil {
+		_ = tx.Rollback()
+		recordSpanError(span, err)
+		return EntityOut{}, err
+	}
 
 	// Copy custom fields if requested
 	if options.CopyCustomFields {
@@ -2515,7 +2679,13 @@ func (r *EntityRepository) CreateContainer(ctx context.Context, gid uuid.UUID, d
 		return EntityOut{}, err
 	}
 
-	q := r.db.Entity.Create().
+	tx, err := r.db.Tx(ctx)
+	if err != nil {
+		recordSpanError(span, err)
+		return EntityOut{}, err
+	}
+
+	q := tx.Entity.Create().
 		SetName(data.Name).
 		SetDescription(data.Description).
 		SetGroupID(gid)
@@ -2530,6 +2700,7 @@ func (r *EntityRepository) CreateContainer(ctx context.Context, gid uuid.UUID, d
 		// Auto-resolve default "Location" entity type for the group
 		etID, err := r.resolveDefaultEntityType(ctx, gid, true)
 		if err != nil {
+			_ = tx.Rollback()
 			recordSpanError(span, err)
 			return EntityOut{}, err
 		}
@@ -2538,12 +2709,29 @@ func (r *EntityRepository) CreateContainer(ctx context.Context, gid uuid.UUID, d
 
 	result, err := q.Save(ctx)
 	if err != nil {
+		_ = tx.Rollback()
+		recordSpanError(span, err)
+		return EntityOut{}, err
+	}
+
+	err = updateLocationHistory(ctx, tx, entityLocation{
+		entityID: result.ID,
+		parentID: data.ParentID,
+	})
+	if err != nil {
+		_ = tx.Rollback()
 		recordSpanError(span, err)
 		return EntityOut{}, err
 	}
 
 	span.SetAttributes(attribute.String("entity.id", result.ID.String()))
 	result.Edges.Group = &ent.Group{ID: gid}
+
+	if err := tx.Commit(); err != nil {
+		recordSpanError(span, err)
+		return EntityOut{}, nil
+	}
+
 	r.publishMutationEvent(gid)
 	return mapEntityOut(result), nil
 }
@@ -2583,7 +2771,13 @@ func (r *EntityRepository) UpdateContainer(ctx context.Context, gid, id uuid.UUI
 		validateSpan.End()
 	}
 
-	q := r.db.Entity.Update().
+	tx, err := r.db.Tx(ctx)
+	if err != nil {
+		recordSpanError(span, err)
+		return EntityOut{}, err
+	}
+
+	q := tx.Entity.Update().
 		Where(
 			entity.ID(id),
 			entity.HasGroupWith(group.ID(gid)),
@@ -2597,8 +2791,23 @@ func (r *EntityRepository) UpdateContainer(ctx context.Context, gid, id uuid.UUI
 		q.ClearParent()
 	}
 
-	_, err := q.Save(ctx)
+	_, err = q.Save(ctx)
 	if err != nil {
+		recordSpanError(span, err)
+		return EntityOut{}, err
+	}
+
+	err = updateLocationHistory(ctx, tx, entityLocation{
+		entityID: data.ID,
+		parentID: data.ParentID,
+	})
+	if err != nil {
+		_ = tx.Rollback()
+		recordSpanError(span, err)
+		return EntityOut{}, err
+	}
+
+	if err := tx.Commit(); err != nil {
 		recordSpanError(span, err)
 		return EntityOut{}, err
 	}

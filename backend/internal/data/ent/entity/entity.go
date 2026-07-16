@@ -79,6 +79,8 @@ const (
 	EdgeMaintenanceEntries = "maintenance_entries"
 	// EdgeAttachments holds the string denoting the attachments edge name in mutations.
 	EdgeAttachments = "attachments"
+	// EdgeLocationHistory holds the string denoting the location_history edge name in mutations.
+	EdgeLocationHistory = "location_history"
 	// Table holds the table name of the entity in the database.
 	Table = "entities"
 	// GroupTable is the table that holds the group relation/edge.
@@ -129,6 +131,13 @@ const (
 	AttachmentsInverseTable = "attachments"
 	// AttachmentsColumn is the table column denoting the attachments relation/edge.
 	AttachmentsColumn = "entity_attachments"
+	// LocationHistoryTable is the table that holds the location_history relation/edge.
+	LocationHistoryTable = "location_histories"
+	// LocationHistoryInverseTable is the table name for the LocationHistory entity.
+	// It exists in this package in order to avoid circular dependency with the "locationhistory" package.
+	LocationHistoryInverseTable = "location_histories"
+	// LocationHistoryColumn is the table column denoting the location_history relation/edge.
+	LocationHistoryColumn = "entity_id"
 )
 
 // Columns holds all SQL columns for entity fields.
@@ -452,6 +461,20 @@ func ByAttachments(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 		sqlgraph.OrderByNeighborTerms(s, newAttachmentsStep(), append([]sql.OrderTerm{term}, terms...)...)
 	}
 }
+
+// ByLocationHistoryCount orders the results by location_history count.
+func ByLocationHistoryCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newLocationHistoryStep(), opts...)
+	}
+}
+
+// ByLocationHistory orders the results by location_history terms.
+func ByLocationHistory(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newLocationHistoryStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
 func newGroupStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(
 		sqlgraph.From(Table, FieldID),
@@ -506,5 +529,12 @@ func newAttachmentsStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(AttachmentsInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.O2M, false, AttachmentsTable, AttachmentsColumn),
+	)
+}
+func newLocationHistoryStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(LocationHistoryInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, LocationHistoryTable, LocationHistoryColumn),
 	)
 }

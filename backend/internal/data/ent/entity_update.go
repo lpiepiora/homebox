@@ -17,6 +17,7 @@ import (
 	"github.com/sysadminsmedia/homebox/backend/internal/data/ent/entityfield"
 	"github.com/sysadminsmedia/homebox/backend/internal/data/ent/entitytype"
 	"github.com/sysadminsmedia/homebox/backend/internal/data/ent/group"
+	"github.com/sysadminsmedia/homebox/backend/internal/data/ent/locationhistory"
 	"github.com/sysadminsmedia/homebox/backend/internal/data/ent/maintenanceentry"
 	"github.com/sysadminsmedia/homebox/backend/internal/data/ent/predicate"
 	"github.com/sysadminsmedia/homebox/backend/internal/data/ent/tag"
@@ -571,6 +572,21 @@ func (_u *EntityUpdate) AddAttachments(v ...*Attachment) *EntityUpdate {
 	return _u.AddAttachmentIDs(ids...)
 }
 
+// AddLocationHistoryIDs adds the "location_history" edge to the LocationHistory entity by IDs.
+func (_u *EntityUpdate) AddLocationHistoryIDs(ids ...uuid.UUID) *EntityUpdate {
+	_u.mutation.AddLocationHistoryIDs(ids...)
+	return _u
+}
+
+// AddLocationHistory adds the "location_history" edges to the LocationHistory entity.
+func (_u *EntityUpdate) AddLocationHistory(v ...*LocationHistory) *EntityUpdate {
+	ids := make([]uuid.UUID, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddLocationHistoryIDs(ids...)
+}
+
 // Mutation returns the EntityMutation object of the builder.
 func (_u *EntityUpdate) Mutation() *EntityMutation {
 	return _u.mutation
@@ -697,6 +713,27 @@ func (_u *EntityUpdate) RemoveAttachments(v ...*Attachment) *EntityUpdate {
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveAttachmentIDs(ids...)
+}
+
+// ClearLocationHistory clears all "location_history" edges to the LocationHistory entity.
+func (_u *EntityUpdate) ClearLocationHistory() *EntityUpdate {
+	_u.mutation.ClearLocationHistory()
+	return _u
+}
+
+// RemoveLocationHistoryIDs removes the "location_history" edge to LocationHistory entities by IDs.
+func (_u *EntityUpdate) RemoveLocationHistoryIDs(ids ...uuid.UUID) *EntityUpdate {
+	_u.mutation.RemoveLocationHistoryIDs(ids...)
+	return _u
+}
+
+// RemoveLocationHistory removes "location_history" edges to LocationHistory entities.
+func (_u *EntityUpdate) RemoveLocationHistory(v ...*LocationHistory) *EntityUpdate {
+	ids := make([]uuid.UUID, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveLocationHistoryIDs(ids...)
 }
 
 // Save executes the query and returns the number of nodes affected by the update operation.
@@ -1228,6 +1265,51 @@ func (_u *EntityUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(attachment.FieldID, field.TypeUUID),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.LocationHistoryCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   entity.LocationHistoryTable,
+			Columns: []string{entity.LocationHistoryColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(locationhistory.FieldID, field.TypeUUID),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedLocationHistoryIDs(); len(nodes) > 0 && !_u.mutation.LocationHistoryCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   entity.LocationHistoryTable,
+			Columns: []string{entity.LocationHistoryColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(locationhistory.FieldID, field.TypeUUID),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.LocationHistoryIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   entity.LocationHistoryTable,
+			Columns: []string{entity.LocationHistoryColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(locationhistory.FieldID, field.TypeUUID),
 			},
 		}
 		for _, k := range nodes {
@@ -1791,6 +1873,21 @@ func (_u *EntityUpdateOne) AddAttachments(v ...*Attachment) *EntityUpdateOne {
 	return _u.AddAttachmentIDs(ids...)
 }
 
+// AddLocationHistoryIDs adds the "location_history" edge to the LocationHistory entity by IDs.
+func (_u *EntityUpdateOne) AddLocationHistoryIDs(ids ...uuid.UUID) *EntityUpdateOne {
+	_u.mutation.AddLocationHistoryIDs(ids...)
+	return _u
+}
+
+// AddLocationHistory adds the "location_history" edges to the LocationHistory entity.
+func (_u *EntityUpdateOne) AddLocationHistory(v ...*LocationHistory) *EntityUpdateOne {
+	ids := make([]uuid.UUID, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddLocationHistoryIDs(ids...)
+}
+
 // Mutation returns the EntityMutation object of the builder.
 func (_u *EntityUpdateOne) Mutation() *EntityMutation {
 	return _u.mutation
@@ -1917,6 +2014,27 @@ func (_u *EntityUpdateOne) RemoveAttachments(v ...*Attachment) *EntityUpdateOne 
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveAttachmentIDs(ids...)
+}
+
+// ClearLocationHistory clears all "location_history" edges to the LocationHistory entity.
+func (_u *EntityUpdateOne) ClearLocationHistory() *EntityUpdateOne {
+	_u.mutation.ClearLocationHistory()
+	return _u
+}
+
+// RemoveLocationHistoryIDs removes the "location_history" edge to LocationHistory entities by IDs.
+func (_u *EntityUpdateOne) RemoveLocationHistoryIDs(ids ...uuid.UUID) *EntityUpdateOne {
+	_u.mutation.RemoveLocationHistoryIDs(ids...)
+	return _u
+}
+
+// RemoveLocationHistory removes "location_history" edges to LocationHistory entities.
+func (_u *EntityUpdateOne) RemoveLocationHistory(v ...*LocationHistory) *EntityUpdateOne {
+	ids := make([]uuid.UUID, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveLocationHistoryIDs(ids...)
 }
 
 // Where appends a list predicates to the EntityUpdate builder.
@@ -2478,6 +2596,51 @@ func (_u *EntityUpdateOne) sqlSave(ctx context.Context) (_node *Entity, err erro
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(attachment.FieldID, field.TypeUUID),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.LocationHistoryCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   entity.LocationHistoryTable,
+			Columns: []string{entity.LocationHistoryColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(locationhistory.FieldID, field.TypeUUID),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedLocationHistoryIDs(); len(nodes) > 0 && !_u.mutation.LocationHistoryCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   entity.LocationHistoryTable,
+			Columns: []string{entity.LocationHistoryColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(locationhistory.FieldID, field.TypeUUID),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.LocationHistoryIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   entity.LocationHistoryTable,
+			Columns: []string{entity.LocationHistoryColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(locationhistory.FieldID, field.TypeUUID),
 			},
 		}
 		for _, k := range nodes {
